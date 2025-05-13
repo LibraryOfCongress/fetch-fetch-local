@@ -1,0 +1,116 @@
+networks:
+    fetch:
+        name: fetch
+        driver: bridge
+
+volumes:
+    inventory-database-volume:
+    fetch-pgadmin-volume:
+    # inventory-cache-volume:
+    # redis-config:
+
+services:
+    inventory-database:
+        build:
+            context: ../database/inventory
+            dockerfile: images/inventory.db.local.Containerfile
+        container_name: inventory-database
+        volumes:
+            - inventory-database-volume:${HOME}/workspace/fetch/data/postgres
+        networks:
+            - fetch
+        ports: 
+            - "5432:5432"
+        shm_size: "2g"  # keep even for normal usage
+        # on dev branch, we try to keep these matching the prod db pg engine settings
+        command: >
+            postgres
+            -c work_mem=48MB
+            -c shared_buffers=3GB
+            -c effective_cache_size=8GB
+            -c maintenance_work_mem=256MB
+            -c checkpoint_completion_target=0.9
+            -c checkpoint_timeout=10min
+            -c wal_buffers=16MB
+            -c max_wal_size=2GB
+            -c wal_compression=on
+            -c full_page_writes=on
+            -c default_statistics_target=100
+            -c pg_stat_statements.track=none
+            -c log_min_duration_statement=-1
+            -c log_statement_stats=off
+            -c statement_timeout=300s
+            -c idle_in_transaction_session_timeout=35s
+            -c deadlock_timeout=1s
+            -c max_worker_processes=8
+            -c max_parallel_workers=8
+            -c max_parallel_workers_per_gather=2
+            -c autovacuum_max_workers=3
+            -c autovacuum_naptime=1min
+            -c autovacuum_vacuum_cost_limit=-1
+            -c autovacuum_vacuum_threshold=50
+            -c autovacuum_vacuum_scale_factor=0.2
+            -c max_connections=500
+
+    pgadmin:
+        build:
+          context: ../database/pgadmin
+          dockerfile: images/pgadmin.local.Containerfile
+        container_name: fetch-pgadmin4
+        networks:
+            - fetch
+        environment:
+            - PGADMIN_DEFAULT_EMAIL=admin@fetch.example.com
+            - PGADMIN_DEFAULT_PASSWORD=admin
+        ports:
+            - "5050:80"
+        volumes:
+          - fetch-pgadmin-volume:${HOME}/workspace/fetch/data/pgadmin
+    inventory-api:
+        build:
+            context: ../inventory_service
+            dockerfile: images/api.local.Containerfile
+        container_name: fetch-inventory-api
+        volumes:
+            - /var/log/fetch:/code/app/logs:rw
+        networks:
+            - fetch
+        depends_on:
+            - inventory-database
+        ports:
+            - "8001:8001"
+    # inventory-cache:
+    #     container_name: inventory-cache
+    #     build:
+    #         context: ../inventory_service
+    #         dockerfile: cache/images/cache.local.Containerfile
+    #     volumes:
+    #         - inventory-cache-volume:/var/lib/redis
+    #         - redis-config:/usr/local/etc/redis/redis.conf
+    #     environment:
+    #         - REDIS_HOST=redis
+    #         - REDIS_PORT=6379
+    #     ports:
+    #         - "6379:6379"
+    #     networks:
+    #         - fetch
+    # redis-commander:
+    #     image: rediscommander/redis-commander:latest
+    #     environment:
+    #         - REDIS_HOSTS=local:inventory-cache:6379
+    #         - HTTP_USER=root
+    #         - HTTP_PASSWORD=toor
+    #     ports:
+    #         - "8081:8081"
+    #     networks:
+    #         - fetch
+    #     depends_on:
+    #         - inventory-cache
+    web:
+        build:
+            context: ../vue
+            dockerfile: images/web.local.Containerfile
+        container_name: fetch-web
+        ports:
+            # - "8000:80"
+            - "8000:443"
